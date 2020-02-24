@@ -8,6 +8,7 @@
 #include "sbuf.h"
 #include "t2conf.h"
 #include "align.h"
+#include "banned.h"
 
 #define DEBUG_PRINT_VARIABLES 0
 #define DEFAULT_TINT2RC "~/.config/tint2/tint2rc"
@@ -88,6 +89,7 @@ static void process_line(char *line)
 {
 	char *option, *value, *field;
 	int id;
+	char *saveptr;
 
 	if (!parse_config_line(line, &option, &value))
 		return;
@@ -160,9 +162,8 @@ static void process_line(char *line)
 
 	} else if (!strcmp(option, "task_font")) {
 		say("font             = %s", value);
-		if (font)
-			free(font);
-		font = strdup(value);
+		xfree(font);
+		font = xstrdup(value);
 	} else if (!strcmp(option, "task_font_color")) {
 		say("color_norm_fg    = %s", value);
 		parse_hexstr(value, config.color_norm_fg);
@@ -171,14 +172,13 @@ static void process_line(char *line)
 		parse_hexstr(value, config.color_sel_fg);
 	} else if (!strcmp(option, "launcher_icon_theme")) {
 		say("icon_theme       = %s", value);
-		if (icon_theme)
-			free(icon_theme);
-		icon_theme = strdup(value);
+		xfree(icon_theme);
+		icon_theme = xstrdup(value);
 	} else if (!strcmp(option, "launcher_icon_theme_override")) {
 		say("override_xsetti. = %s", value);
 		override_xsettings = atoi(value);
 	} else if (!strcmp(option, "panel_position")) {
-		field = strtok(value, DELIM);
+		field = strtok_r(value, DELIM, &saveptr);
 		if (!field)
 			return;
 		if (!strcmp(field, "bottom"))
@@ -188,7 +188,7 @@ static void process_line(char *line)
 		else if (!strcmp(field, "center"))
 			valign = CENTER;
 
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		if (!strcmp(field, "left"))
@@ -198,7 +198,7 @@ static void process_line(char *line)
 		else if (!strcmp(field, "center"))
 			halign = CENTER;
 
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		if (!strcmp(field, "horizontal"))
@@ -212,48 +212,48 @@ static void process_line(char *line)
 		 * We cannot calculate width/height at this point as we have
 		 * to be able to resolve '%' and might not know alignment yet.
 		 */
-		field = strtok(value, DELIM);
+		field = strtok_r(value, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_width = strdup(field);
 
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_height = strdup(field);
 
 	} else if (!strcmp(option, "panel_margin")) {
-		field = strtok(value, DELIM);
+		field = strtok_r(value, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_margin_h = atoi(field);
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_margin_v = atoi(field);
 	} else if (!strcmp(option, "taskbar_padding")) {
-		field = strtok(value, DELIM);
+		field = strtok_r(value, DELIM, &saveptr);
 		if (!field)
 			return;
 		taskbar_hpadding = atoi(field);
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		taskbar_vpadding = atoi(field);
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		taskbar_spacing = atoi(field);
 	} else if (!strcmp(option, "panel_padding")) {
-		field = strtok(value, DELIM);
+		field = strtok_r(value, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_hpadding = atoi(field);
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_vpadding = atoi(field);
-		field = strtok(NULL, DELIM);
+		field = strtok_r(NULL, DELIM, &saveptr);
 		if (!field)
 			return;
 		panel_spacing = atoi(field);
@@ -391,7 +391,7 @@ static void set_alignment_and_position(void)
 	 * If "panel_shrink = 1" in tint2rc, one of menu_margin_{x,y} is not
 	 * accurately set (i.e. x for horizontal and y for vertical).
 	 * Also, the menu will always align to the edge of the panel.
-	 * For more accurate positioning use tint2 buttons (and t2env.c)
+	 * For more accurate positioning use IPC (ipc.c)
 	 */
 	if (orientation == HORIZONTAL) {
 		hpanel_set_margin_y();
@@ -426,10 +426,8 @@ static void t2conf_cleanup(void)
 
 void t2conf_atexit(void)
 {
-	if (font)
-		free(font);
-	if (icon_theme)
-		free(icon_theme);
+	xfree(font);
+	xfree(icon_theme);
 }
 
 void t2conf_parse(const char *filename, int screen_width, int screen_height)
@@ -454,12 +452,6 @@ void t2conf_parse(const char *filename, int screen_width, int screen_height)
 cleanup:
 	free(tint2rc.buf);
 	t2conf_cleanup();
-}
-
-int t2conf_is_horizontal_panel(void)
-{
-	return (orientation == VERTICAL) ? 0 :
-	       (orientation == HORIZONTAL) ? 1 : -1;
 }
 
 void t2conf_get_font(char **f)

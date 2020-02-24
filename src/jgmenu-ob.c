@@ -15,12 +15,13 @@
 #include "sbuf.h"
 #include "list.h"
 #include "i18n.h"
+#include "banned.h"
 
 static const char reconfigure_command[] = "openbox --reconfigure";
 static const char restart_command[] = "openbox --restart";
 static const char root_menu_default[] = "root-menu";
 static char *root_menu = (char *)root_menu_default;
-static char *i18nfile;
+static int ispipemenu;
 
 struct tag {
 	char *label;
@@ -44,7 +45,7 @@ static struct list_head tags;
 static struct tag *curtag;
 static struct item *curitem;
 
-static void print_it(struct tag *tag)
+static void print_one_node(struct tag *tag)
 {
 	struct item *item;
 	struct sbuf label_escaped;
@@ -52,16 +53,20 @@ static void print_it(struct tag *tag)
 
 	if (list_empty(&tag->items))
 		return;
+	if (ispipemenu && !strcmp(tag->id, root_menu))
+		goto dont_print_tag;
 	printf("^tag(%s)\n", tag->id);
+dont_print_tag:
 	if (tag->parent)
 		printf("Back,^back()\n");
 	list_for_each_entry(item, &tag->items, list) {
 		t9n = NULL;
-		if (i18nfile && item->label)
-			t9n = i18n_translate(item->label);
+		t9n = i18n_translate(item->label);
 		sbuf_init(&label_escaped);
 		sbuf_cpy(&label_escaped, t9n ? t9n : item->label);
 		sbuf_replace(&label_escaped, "&", "&amp;");
+		sbuf_replace(&label_escaped, "<", "&lt;");
+		sbuf_replace(&label_escaped, ">", "&gt;");
 		sbuf_replace_spaces_with_one_tab(&label_escaped);
 		if (strchr(label_escaped.buf, ',')) {
 			sbuf_prepend(&label_escaped, "\"\"\"");
@@ -96,13 +101,15 @@ static void print_menu(void)
 {
 	struct tag *tag;
 
+	/* print root menu first */
 	list_for_each_entry(tag, &tags, list)
 		if (tag->id && !strcmp(tag->id, root_menu))
-			print_it(tag);
+			print_one_node(tag);
 
+	/* then print all other nodes */
 	list_for_each_entry(tag, &tags, list)
 		if (tag->id && strcmp(tag->id, root_menu))
-			print_it(tag);
+			print_one_node(tag);
 }
 
 static char *get_tag_label(const char *id)
@@ -162,6 +169,11 @@ static void new_item(xmlNode *n, int isseparator)
 	curitem = item;
 }
 
+/**
+ *  new_tag - create new tag (to generate ^tag() markup)
+ *  @n - <menu label="" id=""></menu> node to create tag against
+ *       If NULL is provided, we create a root-menu tag
+ */
 static void new_tag(xmlNode *n)
 {
 	struct tag *t = xcalloc(1, sizeof(struct tag));
@@ -183,6 +195,8 @@ static void new_tag(xmlNode *n)
 	INIT_LIST_HEAD(&t->items);
 	list_add_tail(&t->list, &tags);
 	curtag = t;
+
+	/* Create an item to generate the ^checkout() markup */
 	if (parent) {
 		new_item(n, 0);
 		xfree(curitem->label);
@@ -369,6 +383,11 @@ static void xml_tree_walk(xmlNode *node)
 		}
 		if (!strcasecmp((char *)n->name, "Comment"))
 			continue;
+		if (!strcasecmp((char *)n->name, "openbox_pipe_menu")) {
+			if (!curtag)
+				new_tag(NULL);
+			ispipemenu = 1;
+		}
 
 		process_node(n);
 		xml_tree_walk(n->children);
@@ -419,13 +438,6 @@ static void cleanup(void)
 static void handle_argument_clash(void)
 {
 	die("both --cmd=<cmd> and <file> provided");
-}
-
-static void init_i18n(void)
-{
-	i18nfile = getenv("JGMENU_I18N");
-	if (i18nfile)
-		i18nfile = i18n_set_translation_file(i18nfile);
 }
 
 int main(int argc, char **argv)
@@ -481,11 +493,10 @@ out:
 			*p = '\0';
 		sbuf_addstr(&xmlbuf, buf);
 	}
-	init_i18n();
+	i18n_init(getenv("JGMENU_I18N"));
 	parse_xml(&xmlbuf);
 	xfree(xmlbuf.buf);
-	if (i18nfile)
-		i18n_cleanup();
+	i18n_cleanup();
 
 	return 0;
 }

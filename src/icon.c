@@ -24,6 +24,7 @@
 #include "cache.h"
 #include "config.h"
 #include "icon.h"
+#include "banned.h"
 
 #define DEBUG_THEMES 0
 
@@ -266,4 +267,5 @@ void icon_cleanup(void)
 		xfree(icon);
 	}
 	icon_find_cleanup();
+	cache_atexit_cleanup();
 }

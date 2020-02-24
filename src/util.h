@@ -23,15 +23,16 @@
 	} \
 } while (0)
 
+void mute_info(void);
 void info(const char *err, ...);
 void warn(const char *err, ...);
 void die(const char *err, ...);
-void spawn(const char *arg, const char *working_dir);
 void safe_free(void **ptr);
 char *xstrdup(const char *s);
 void *xmalloc(size_t size);
 void *xrealloc(void *ptr, size_t size);
 void *xcalloc(size_t nb, size_t size);
+void rtrim(char **s);
 char *strstrip(char *s);
 int parse_config_line(char *line, char **option, char **value);
 int hex_to_dec(char c);
@@ -42,5 +43,12 @@ void cat(const char *filename);
 void remove_caret_markup_closing_bracket(char *s);
 void mkdir_p(const char *path);
 void msleep(unsigned int duration);
+
+/**
+ * strip_exec_field_codes - remove field codes from .desktop file exec field
+ * @exec - pointer to exec string
+ * Remove all %? except %% which becomes %
+ */
+void strip_exec_field_codes(char **exec);
 
 #endif /* UTIL_H */

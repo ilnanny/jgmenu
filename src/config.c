@@ -10,6 +10,7 @@
 #include "list.h"
 #include "sbuf.h"
 #include "xdgdirs.h"
+#include "banned.h"
 
 struct config config;
 static struct sbuf jgmenurc_file;
@@ -17,11 +18,13 @@ static struct sbuf jgmenurc_file;
 void config_set_defaults(void)
 {
 	config.spawn		   = 1;	/* not in jgmenurc */
+	config.verbosity	   = 0;
 	config.stay_alive	   = 1;
 	config.hide_on_startup	   = 0;
-	config.csv_cmd		   = xstrdup("pmenu");
-	config.tint2_look	   = 1;
-	config.at_pointer	   = 0;
+	config.csv_cmd		   = xstrdup("apps");
+	config.tint2_look	   = 0;
+	config.position_mode	   = POSITION_MODE_FIXED;
+	config.respect_workarea	   = 1;	/* set in config_post_process() */
 	config.edge_snap_x	   = 30;
 	config.terminal_exec	   = xstrdup("x-terminal-emulator");
 	config.terminal_args	   = xstrdup("-e");
@@ -75,7 +78,7 @@ void config_set_defaults(void)
 	config.arrow_string	   = xstrdup("▸");
 	config.arrow_width	   = 15;
 
-	parse_hexstr("#000000 85", config.color_menu_bg);
+	parse_hexstr("#000000 100", config.color_menu_bg);
 	parse_hexstr("#eeeeee 8", config.color_menu_border);
 	parse_hexstr("#000000 00", config.color_norm_bg);
 	parse_hexstr("#eeeeee 100", config.color_norm_fg);
@@ -92,6 +95,7 @@ void config_set_defaults(void)
 	config.csv_single_window   = 0;
 	config.csv_no_dirs	   = 0;
 	config.csv_i18n		   = NULL;
+	config.csv_no_duplicates = 0;
 }
 
 void config_cleanup(void)
@@ -115,7 +119,9 @@ static void process_line(char *line)
 	if (!parse_config_line(line, &option, &value))
 		return;
 
-	if (!strcmp(option, "stay_alive")) {
+	if (!strcmp(option, "verbosity")) {
+		xatoi(&config.verbosity, value, XATOI_NONNEG, "config.verbosity");
+	} else if (!strcmp(option, "stay_alive")) {
 		xatoi(&config.stay_alive, value, XATOI_NONNEG, "config.stay_alive");
 	} else if (!strcmp(option, "hide_on_startup")) {
 		xatoi(&config.hide_on_startup, value, XATOI_NONNEG, "config.hide_on_startup");
@@ -125,7 +131,31 @@ static void process_line(char *line)
 	} else if (!strcmp(option, "tint2_look")) {
 		xatoi(&config.tint2_look, value, XATOI_NONNEG, "config.tint2_look");
 	} else if (!strcmp(option, "at_pointer")) {
-		xatoi(&config.at_pointer, value, XATOI_NONNEG, "config.at_pointer");
+		if (atoi(value) == 1)
+			config.position_mode = POSITION_MODE_PTR;
+		warn("'at_pointer' is deprecated; use 'position_mode'");
+
+	} else if (!strcmp(option, "position_mode")) {
+		if (!value)
+			return;
+		if (!strcasecmp(value, "fixed")) {
+			config.position_mode = POSITION_MODE_FIXED;
+			config.respect_workarea = 1;
+		} else if (!strcasecmp(value, "ipc")) {
+			config.position_mode = POSITION_MODE_IPC;
+			config.respect_workarea = 0;
+		} else if (!strcasecmp(value, "pointer")) {
+			config.position_mode = POSITION_MODE_PTR;
+			config.respect_workarea = 1;
+		} else if (!strcasecmp(value, "center")) {
+			config.position_mode = POSITION_MODE_CENTER;
+			config.respect_workarea = 0;
+			config.menu_valign = CENTER;
+			config.menu_halign = CENTER;
+		} else {
+			warn("position_mode value '%s' not recognised", value);
+		}
+
 	} else if (!strcmp(option, "edge_snap_x")) {
 		xatoi(&config.edge_snap_x, value, XATOI_NONNEG, "config.edge_snap_x");
 	} else if (!strcmp(option, "terminal_exec")) {
@@ -317,6 +347,8 @@ static void process_line(char *line)
 	} else if (!strcmp(option, "csv_i18n")) {
 		xfree(config.csv_i18n);
 		config.csv_i18n = xstrdup(value);
+	} else if (!strcmp(option, "csv_no_duplicates")) {
+		xatoi(&config.csv_no_duplicates, value, XATOI_NONNEG, "config.csv_no_duplicates");
 	}
 }
 
@@ -433,6 +465,9 @@ void config_post_process(void)
 	} else if (!strcmp(config.csv_cmd, "lx")) {
 		xfree(config.csv_cmd);
 		config.csv_cmd = xstrdup("jgmenu_run lx");
+	} else if (!strcmp(config.csv_cmd, "apps")) {
+		xfree(config.csv_cmd);
+		config.csv_cmd = xstrdup("jgmenu_run apps");
 	} else if (!strcmp(config.csv_cmd, "ob")) {
 		xfree(config.csv_cmd);
 		config.csv_cmd = xstrdup("jgmenu_run ob");
@@ -441,6 +476,13 @@ void config_post_process(void)
 	if (config.menu_height_max &&
 	    config.menu_height_min > config.menu_height_max)
 		warn("menu_height_min cannot be greater than menu_height_max");
+
+	if (config.verbosity) {
+		char buf[8];
+
+		snprintf(buf, sizeof(buf), "%d", config.verbosity);
+		setenv("JGMENU_VERBOSITY", buf, 1);
+	}
 
 	if (config.csv_name_format)
 		setenv("JGMENU_NAME_FORMAT", config.csv_name_format, 1);
@@ -454,4 +496,8 @@ void config_post_process(void)
 		unsetenv("JGMENU_NO_DIRS");
 	if (config.csv_i18n)
 		setenv("JGMENU_I18N", config.csv_i18n, 1);
+	if (config.csv_no_duplicates)
+		setenv("JGMENU_NO_DUPLICATES", "1", 1);
+	else
+		unsetenv("JGMENU_NO_DUPLICATES");
 }

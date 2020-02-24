@@ -7,13 +7,18 @@
 #define CONFIG_STATIC (-9998)
 #define CONFIG_DYNAMIC (-9997)
 
+enum position_mode {POSITION_MODE_FIXED, POSITION_MODE_IPC, POSITION_MODE_PTR,
+		    POSITION_MODE_CENTER, POSITION_MODE_UNKNOWN};
+
 struct config {
 	int spawn;		/* 1:execute commands  0:print to stdout */
+	int verbosity;
 	int stay_alive;
 	int hide_on_startup;
 	char *csv_cmd;
 	int tint2_look;
-	int at_pointer;
+	enum position_mode position_mode;
+	int respect_workarea;	/* set with position_mode */
 	int edge_snap_x;
 	char *terminal_exec;
 	char *terminal_args;
@@ -83,6 +88,7 @@ struct config {
 	int csv_single_window;
 	int csv_no_dirs;
 	char *csv_i18n;
+	int csv_no_duplicates;
 };
 
 extern struct config config;

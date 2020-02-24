@@ -5,6 +5,7 @@
 
 #include "util.h"
 #include "back.h"
+#include "banned.h"
 
 static char *back_str;
 
@@ -13,6 +14,7 @@ struct back_lookup_table {
 	const char *back_string;
 };
 
+/* clang-format off */
 static struct back_lookup_table back_lookup_table[] = {
 	{ "am", "ወደ ኋላ"},
 	{ "ar", "إلى الخلف" },
@@ -69,15 +71,15 @@ static struct back_lookup_table back_lookup_table[] = {
 	{ NULL, NULL }
 };
 
+/* clang-format on */
+
 static int get_lang(char *b)
 {
 	char *s;
 
 	s = getenv("LANG");
-	if (!s || strlen(s) < 2) {
-		warn("LANG is not set");
+	if (!s || strlen(s) < 2)
 		return -1;
-	}
 	b[0] = s[0];
 	b[1] = s[1];
 	b[2] = '\0';

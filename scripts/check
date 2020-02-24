@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+die () {
+	printf '\033[31mfatal:\033[m %b\n' "$@" >&2
+	exit 1
+}
+
+say () {
+	printf '\033[32m%s\033[m\n' "$@"
+}
+
+isinstalled () {
+	type "$1" >/dev/null 2>&1
+}
+
+usage () {
+	say "Usage: check [<options>]"
+	say "Options:"
+	say "-h   show help"
+	exit 0
+}
+
+analyse () {
+	[[ -e $1 ]] || die "file ($1) does not exist"
+	say "     CHECK $1"
+	if [[ $(file $1) == *shell\ script* ]]; then
+		shellcheck "$1"
+	fi
+	if [[ $(file $1) == *C\ source* ]]; then
+		./scripts/cppcheck-wrapper.sh "$1"
+		./scripts/checkpatch-wrapper.sh "$1"
+	fi
+}
+
+analyse_all () {
+	for f in src/*.sh; do
+		analyse "$f"
+	done
+	for f in src/*.c; do
+		analyse "$f"
+	done
+	for f in src/*.h; do
+		analyse "$f"
+	done
+}
+
+args() {
+	for arg
+	do
+		case $arg in
+			-h)
+				usage ;;
+			*)
+				analyse "$arg"
+		esac
+	done
+}
+
+main() {
+	[[ -e src/jgmenu.c ]] || die "must be run from top-level directory"
+	args "$@"
+	[[ $# -eq 0 ]] && analyse_all
+}
+
+main "$@"

@@ -21,12 +21,15 @@
  * Author:  Owen Taylor, Red Hat, Inc.
  */
 
-#include "xsettings.h"
-
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "xpm-loader.h"
+#include "xsettings.h"
+#include "util.h"
+#include "banned.h"
 
 struct xsettings_buffer {
 	char byte_order;
@@ -264,7 +267,7 @@ static unsigned char *read_xsettings(Display *display, Window manager,
 				if (buffer_size > 0) {
 					unsigned long offset = *total_size;
 					*total_size += buffer_size;
-					result = realloc(result, *total_size);
+					result = xrealloc(result, *total_size);
 					memcpy(result + offset, buffer, buffer_size);
 					if (bytes_after == 0)
 						done = True;

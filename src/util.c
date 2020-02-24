@@ -4,11 +4,21 @@
 
 #include "util.h"
 #include "sbuf.h"
+#include "banned.h"
+
+static int info_muted;
+
+void mute_info(void)
+{
+	info_muted = 1;
+}
 
 void info(const char *err, ...)
 {
 	va_list params;
 
+	if (info_muted)
+		return;
 	fprintf(stderr, "info: ");
 	va_start(params, err);
 	vfprintf(stderr, err, params);
@@ -87,23 +97,25 @@ void *xcalloc(size_t nb, size_t size)
 	return ret;
 }
 
-char *strstrip(char *s)
+void rtrim(char **s)
 {
 	size_t len;
 	char *end;
 
-	len = strlen(s);
+	len = strlen(*s);
 	if (!len)
-		return s;
-
-	end = s + len - 1;
-	while (end >= s && isspace(*end))
+		return;
+	end = *s + len - 1;
+	while (end >= *s && isspace(*end))
 		end--;
 	*(end + 1) = '\0';
+}
 
+char *strstrip(char *s)
+{
+	rtrim(&s);
 	while (isspace(*s))
 		s++;
-
 	return s;
 }
 
@@ -211,7 +223,7 @@ void xatoi(int *var, const char *value, int flags, const char *key)
 	char *endptr;
 
 	if (!value || *value == '\0') {
-		xatoi_warn("null or empty string", value, key);
+		xatoi_warn("null or empty string", "", key);
 		return;
 	}
 
@@ -299,4 +311,23 @@ void msleep(unsigned int duration)
 	ts.tv_sec  = sec;
 	ts.tv_nsec =  msec * 1000000;
 	nanosleep(&ts, NULL);
+}
+
+void strip_exec_field_codes(char **exec)
+{
+	char *p;
+
+	if (!**exec || !*exec)
+		return;
+	for (p = *exec; *p; p++) {
+		if (*p == '%') {
+			*p = ' ';
+			++p;
+			if (*p == '\0')
+				break;
+			if (*p != '%')
+				*p = ' ';
+		}
+	}
+	rtrim(exec);
 }

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <stdbool.h>
 
 #include "desktop.h"
 #include "xdgdirs.h"
@@ -16,20 +17,11 @@
 #include "list.h"
 #include "charset.h"
 #include "compat.h"
+#include "lang.h"
+#include "banned.h"
 
 static struct app *apps;
 static int nr_apps, alloc_apps;
-
-//static void format_exec(void)
-//{
-//	// FIXME: tidy up
-//	/* Remove %U, %f, etc at the end of Exec cmd */
-//	if (desktop_file->exec) {
-//		p = strchr(desktop_file->exec, '%');
-//		if (p)
-//			*p = '\0';
-//	}
-//}
 
 static void parse_line(char *line, struct app *app, int *is_desktop_entry)
 {
@@ -47,25 +39,78 @@ static void parse_line(char *line, struct app *app, int *is_desktop_entry)
 
 	if (!parse_config_line(line, &key, &value))
 		return;
-	if (!strcmp("Name", key))
+	if (!strcmp("Name", key)) {
 		app->name = strdup(value);
-	else if (!strcmp("Exec", key))
+	} else if (!strcmp("GenericName", key)) {
+		app->generic_name = strdup(value);
+	} else if (!strcmp("Exec", key)) {
 		app->exec = strdup(value);
-	else if (!strcmp("Icon", key))
+	} else if (!strcmp("Icon", key)) {
 		app->icon = strdup(value);
-	else if (!strcmp("Categories", key))
+	} else if (!strcmp("Categories", key)) {
 		app->categories = strdup(value);
-	else if (!strcmp("NoDisplay", key))
+	} else if (!strcmp("NoDisplay", key)) {
 		if (!strcasecmp(value, "true"))
-			app->nodisplay = 1;
+			app->nodisplay = true;
+	} else if (!strcmp("Terminal", key)) {
+		if (!strcasecmp(value, "true"))
+			app->terminal = true;
+	}
+
+	/* localized name */
+	if (!strcmp(key, lang_name_llcc()))
+		app->name_localized = xstrdup(value);
+	if (!app->name_localized && !strcmp(key, lang_name_ll()))
+		app->name_localized = xstrdup(value);
+
+	/* localized generic name */
+	if (!strcmp(key, lang_gname_llcc()))
+		app->generic_name_localized = xstrdup(value);
+	if (!app->generic_name_localized && !strcmp(key, lang_gname_ll()))
+		app->generic_name_localized = xstrdup(value);
 }
 
-static int add_app(FILE *fp)
+bool is_duplicate_desktop_file(char *filename)
 {
-	char line[4096];
-	char *p;
+	int i;
+
+	if (!filename)
+		return false;
+	for (i = 0; i < nr_apps; i++) {
+		if (!apps[i].filename)
+			continue;
+		if (!strcmp(apps[i].filename, filename))
+			return true;
+	}
+	return false;
+}
+
+/**
+ * This makes the code a bit simpler in jgmenu-apps.c
+ */
+static void strdup_null_variables(struct app *app)
+{
+	if (!app->name)
+		app->name = strdup("");
+	if (!app->name_localized)
+		app->name_localized = strdup("");
+	if (!app->generic_name)
+		app->generic_name = strdup("");
+	if (!app->generic_name_localized)
+		app->generic_name_localized = strdup("");
+	if (!app->exec)
+		app->exec = strdup("");
+	if (!app->icon)
+		app->icon = strdup("");
+	if (!app->categories)
+		app->categories = strdup("");
+	if (!app->filename)
+		app->filename = strdup("");
+}
+
+static struct app *grow_vector_by_one_app(void)
+{
 	struct app *app;
-	int is_desktop_entry;
 
 	if (nr_apps == alloc_apps) {
 		alloc_apps = (alloc_apps + 16) * 2;
@@ -74,7 +119,17 @@ static int add_app(FILE *fp)
 	app = apps + nr_apps;
 	memset(app, 0, sizeof(*app));
 	nr_apps++;
+	return app;
+}
 
+static int add_app(FILE *fp, char *filename)
+{
+	char line[4096];
+	char *p;
+	struct app *app;
+	int is_desktop_entry;
+
+	app = grow_vector_by_one_app();
 	is_desktop_entry = 0;
 	while (fgets(line, sizeof(line), fp)) {
 		if (line[0] == '\0')
@@ -87,10 +142,9 @@ static int add_app(FILE *fp)
 			return -1;
 		parse_line(line, app, &is_desktop_entry);
 	}
-	if (app->nodisplay || !app->name)
-		--nr_apps;
-	if (app->nodisplay)
-		info("app %s is NoDisplay", app->name);
+	app->filename = strdup(filename);
+	strdup_null_variables(app);
+	strip_exec_field_codes(&app->exec);
 	return 0;
 }
 
@@ -98,9 +152,11 @@ static void process_file(char *filename, const char *path)
 {
 	FILE *fp;
 	char fullname[4096];
-	int ret;
+	int ret = 0;
 	size_t len;
 
+	if (!strcasestr(filename, ".desktop"))
+		return;
 	len = strlen(path);
 	strlcpy(fullname, path, sizeof(fullname));
 	strlcpy(fullname + len, filename, sizeof(fullname) - len);
@@ -109,10 +165,13 @@ static void process_file(char *filename, const char *path)
 		warn("could not open file %s", filename);
 		return;
 	}
-	ret = add_app(fp);
-	fclose(fp);
+	if (is_duplicate_desktop_file(filename))
+		goto out;
+	ret = add_app(fp, filename);
 	if (ret < 0)
 		warn("file '%s' is not utf-8 compatible", filename);
+out:
+	fclose(fp);
 }
 
 static void traverse_directory(const char *path)
@@ -141,20 +200,15 @@ static int compare_app_name(const void *a, const void *b)
 	return strcasecmp(aa->name, bb->name);
 }
 
-int desktop_nr_apps(void)
-{
-	return nr_apps;
-}
-
 struct app *desktop_read_files(void)
 {
 	struct list_head xdg_data_dirs;
 	struct sbuf *dir;
 	struct sbuf s;
-	static int run;
+	static int has_already_run;
 
-	BUG_ON(run);
-	run = 1;
+	BUG_ON(has_already_run);
+	has_already_run = 1;
 
 	INIT_LIST_HEAD(&xdg_data_dirs);
 	xdgdirs_get_basedirs(&xdg_data_dirs);
@@ -168,5 +222,8 @@ struct app *desktop_read_files(void)
 	}
 	qsort(apps, nr_apps, sizeof(struct app), compare_app_name);
 	xfree(s.buf);
+
+	/* NULL terminate vector */
+	grow_vector_by_one_app();
 	return apps;
 }

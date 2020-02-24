@@ -17,11 +17,13 @@
 #include "sbuf.h"
 #include "compat.h"
 #include "set.h"
+#include "banned.h"
 
 static char obtheme[80];
 
 static char *rcxml_files[] = {
-	"~/.config/openbox/rc.xml", "/etc/xdg/openbox/rc.xml", NULL
+	"~/.config/openbox/bl-rc.xml", "~/.config/openbox/rc.xml",
+	"/etc/xdg/openbox/rc.xml", NULL
 };
 
 static char *theme_paths[] = {
@@ -29,9 +31,19 @@ static char *theme_paths[] = {
 };
 
 static const char obtheme_usage[] =
-"Usage: jgmenu_run obtheme <jgmenurc filename>\n";
+"Usage: jgmenu_run obtheme <jgmenu-config-filename>\n"
+"Immitate look of current openbox menu by parsing current openbox theme and\n"
+"setting variables in specified jgmenu config file. The theme name will be\n"
+"obtained from the following list (in order of precedence):\n"
+"  * ~/.config/openbox/bl-rc.xml\n"
+"  * ~/.config/openbox/rc.xml\n"
+"  * /etc/xdg/openbox/rc.xml\n"
+"The above list can be overridden by setting environment variable JGMENU_RCXML.\n"
+"Openbox theme files will be searched for in:\n"
+"  * ~/.themes/\n"
+"  * /usr/share/themes/\n";
 
-void usage(void)
+static void usage(void)
 {
 	printf("%s", obtheme_usage);
 	exit(0);
@@ -55,7 +67,7 @@ static void vset(const char *key, const char *fmt, ...)
 	va_end(ap);
 	if (size < 0)
 		goto out;
-	set_set(key, p);
+	set_set(key, p, 0);
 out:
 	xfree(p);
 }
@@ -72,7 +84,7 @@ static void process_line(char *line)
 	} else if (!strncmp(line, "menu.border.color:", 18)) {
 		vset("color_menu_border", "%s 100", strstrip(line + 18));
 	} else if (!strncmp(line, "menu.border.width:", 18)) {
-		set_set("menu_border", strstrip(line + 18));
+		set_set("menu_border", strstrip(line + 18), 0);
 	/*
 	 * Tried using menu.items.bg.border.color for color_sel_border, but
 	 * it did not work well.
@@ -92,15 +104,15 @@ static void process_line(char *line)
 		vset("color_title_border", "%s 100", strstrip(line + 27));
 	} else if (!strncmp(line, "menu.title.text.color:", 22)) {
 		vset("color_title_fg", "%s 100", strstrip(line + 22));
-		set_set("sep_markup", "");
+		set_set("sep_markup", "", 0);
 	} else if (!strncmp(line, "menu.title.text.justify:", 24)) {
-		set_set("sep_halign", strstrip(line + 24));
+		set_set("sep_halign", strstrip(line + 24), 0);
 	} else if (!strncmp(line, "menu.separator.color:", 21)) {
 		vset("color_sep_fg", "%s 100", strstrip(line + 21));
 
 	/* general */
 	} else if (!strncmp(line, "*.text.justify:", 15)) {
-		set_set("sep_halign", strstrip(line + 15));
+		set_set("sep_halign", strstrip(line + 15), 0);
 	} else if (!strncmp(line, "menu.overlap:", 13)) {
 		vset("sub_spacing", "%d", -1 * atoi(line + 13));
 	}
@@ -181,7 +193,7 @@ static int find_themerc(struct sbuf *filename)
 	return -1;
 }
 
-static int find_rcxml(struct sbuf *filename)
+static void find_rcxml(struct sbuf *filename)
 {
 	struct stat sb;
 	int i;
@@ -190,22 +202,33 @@ static int find_rcxml(struct sbuf *filename)
 		sbuf_cpy(filename, rcxml_files[i]);
 		sbuf_expand_tilde(filename);
 		if (!stat(filename->buf, &sb))
-			return 0;
+			return;
 	}
-	return -1;
+	die("cannot find rc.xml");
+}
+
+/* Separate function to avoid cppcheck and check-patch.pl warnings */
+void libxml_test_version(void)
+{
+	LIBXML_TEST_VERSION
 }
 
 int main(int argc, char **argv)
 {
 	struct sbuf filename;
+	char *p;
 
+	libxml_test_version();
 	if (argc != 2)
 		usage();
 	sbuf_init(&filename);
-	LIBXML_TEST_VERSION
 
-	if (find_rcxml(&filename) < 0)
-		die("cannot find rc.xml");
+	p = getenv("JGMENU_RCXML");
+	if (p)
+		sbuf_cpy(&filename, p);
+	else
+		find_rcxml(&filename);
+
 	get_obtheme_from_rcxml(filename.buf);
 	info("detected theme '%s' from file '%s'", obtheme, filename.buf);
 	if (find_themerc(&filename) < 0)

@@ -5,6 +5,7 @@
 #include "t2conf.h"
 #include "config.h"
 #include "gtkconf.h"
+#include "banned.h"
 
 void theme_set(struct sbuf *theme)
 {
@@ -24,7 +25,7 @@ void theme_set(struct sbuf *theme)
 	}
 
 	/* Use fall back options */
-	for (i = 0; fb[i]; i++)
+	for (i = 0; fb[i]; i++) {
 		switch (fb[i]) {
 		case 'x':
 			if (t2conf_get_override_xsettings())
@@ -52,6 +53,7 @@ void theme_set(struct sbuf *theme)
 				return;
 			}
 			break;
+		}
 	}
 
 	warn("set icon theme to 'Adwaita' because all else failed");

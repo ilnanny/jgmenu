@@ -11,12 +11,15 @@
 #include "util.h"
 #include "sbuf.h"
 #include "compat.h"
+#include "set.h"
+#include "banned.h"
 
 #define strsiz (1000)
 struct entry {
 	char line[strsiz];
 	char key[strsiz];
 	char value[strsiz];
+	int is_commented_out;
 };
 
 static struct entry *entries;
@@ -44,7 +47,11 @@ static void process_line(char *line)
 
 	entry = add_entry();
 	strlcpy(entry->line, line, sizeof(entry->line));
-	parse_config_line(line, &key, &value);
+
+	/* we parse commented out lines too */
+	if (line[0] == '#')
+		entry->is_commented_out = 1;
+	parse_config_line(line + entry->is_commented_out, &key, &value);
 	if (!key || !value)
 		return;
 	strlcpy(entry->key, key, sizeof(entry->key));
@@ -66,7 +73,20 @@ void set_write(const char *filename)
 	fclose(fp);
 }
 
-void set_set(const char *key, const char *value)
+int set_key_exists(const char *key)
+{
+	int i;
+
+	for (i = 0; i < nr_entries; i++) {
+		if (!entries[i].key[0])
+			continue;
+		if (!strcmp(entries[i].key, key))
+			return 1;
+	}
+	return 0;
+}
+
+void set_set(const char *key, const char *value, int is_commented_out)
 {
 	int i;
 	struct entry *e = NULL;
@@ -75,7 +95,7 @@ void set_set(const char *key, const char *value)
 		die("NULL passed to function %s()", __func__);
 	/* look for existing entry */
 	for (i = 0; i < nr_entries; i++) {
-		if (!entries[i].key)
+		if (!entries[i].key[0])
 			continue;
 		if (!strcmp(entries[i].key, key)) {
 			e = entries + i;
@@ -84,9 +104,28 @@ void set_set(const char *key, const char *value)
 	}
 	e = add_entry();
 entry_already_exists:
-	snprintf(e->line, sizeof(e->line), "%s = %s", key, value);
+	e->is_commented_out = is_commented_out;
+	if (e->is_commented_out)
+		snprintf(e->line, sizeof(e->line), "# %s = %s", key, value);
+	else
+		snprintf(e->line, sizeof(e->line), "%s = %s", key, value);
 	strlcpy(e->key, key, sizeof(e->key));
 	strlcpy(e->value, value, sizeof(e->value));
+}
+
+int set_is_already_set_correctly(const char *key, const char *value)
+{
+	int i;
+
+	for (i = 0; i < nr_entries; i++) {
+		if (!entries[i].key[0])
+			continue;
+		if (strcmp(entries[i].key, key))
+			continue;
+		if (!strcmp(entries[i].value, value))
+			return 1;
+	}
+	return 0;
 }
 
 void set_read(const char *filename)
